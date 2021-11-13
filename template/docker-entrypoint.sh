@@ -177,13 +177,32 @@ docker_verify_minimum_env() {
 docker_create_db_directories() {
 	local user; user="$(id -u)"
 
-	# TODO other directories that are used by default? like /var/lib/mysql-files
+	local -A dirs=( ["$DATADIR"]=1 )
+	local dir
+	dir="$(dirname "$SOCKET")"
+	dirs["$dir"]=1
+
+	# TODO /var/lib/mysql-files and /var/lib/mysql-keyring ?
 	# see https://github.com/docker-library/mysql/issues/562
-	mkdir -p "$DATADIR"
+
+	# "datadir" and "socket" are already handled above (since they were already queried previously)
+	local conf
+	for conf in \
+		general-log-file \
+		pid-file \
+		slow-query-log-file \
+	; do
+		dir="$(dirname "$(mysql_get_config "$conf" "$@")")" # get directory contains file from config
+		if [[ "$dir" = /* ]]; then
+			dirs["$dir"]=1
+		fi
+	done
+
+	mkdir -p "${!dirs[@]}"
 
 	if [ "$user" = "0" ]; then
 		# this will cause less disk access than `chown -R`
-		find "$DATADIR" \! -user mysql -exec chown mysql '{}' +
+		find "${!dirs[@]}" \! -user mysql -exec chown mysql '{}' +
 	fi
 }
 
@@ -371,7 +390,7 @@ _main() {
 		mysql_check_config "$@"
 		# Load various environment variables
 		docker_setup_env "$@"
-		docker_create_db_directories
+		docker_create_db_directories "$@"
 
 		# If container is started as root user, restart as dedicated mysql user
 		if [ "$(id -u)" = "0" ]; then
